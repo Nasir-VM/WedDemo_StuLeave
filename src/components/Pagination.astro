@@ -1,0 +1,67 @@
+---
+interface Props {
+  currentPage: number;
+  totalPages: number;
+  baseUrl: string;
+}
+
+const { currentPage, totalPages, baseUrl } = Astro.props;
+
+function getPageUrl(p: number) {
+  const url = new URL(baseUrl, 'http://localhost');
+  url.searchParams.set('page', p.toString());
+  return url.pathname + url.search;
+}
+---
+
+{totalPages > 1 && (
+  <nav class="pagination-wrapper" aria-label="分頁導航">
+    <div class="pagination">
+      {currentPage > 1 ? (
+        <a href={getPageUrl(currentPage - 1)} class="btn btn-secondary btn-sm">
+          ‹ 上一頁
+        </a>
+      ) : (
+        <span class="btn btn-secondary btn-sm disabled" aria-disabled="true">
+          ‹ 上一頁
+        </span>
+      )}
+
+      <span class="page-info">
+        第 <strong>{currentPage}</strong> 頁 / 共 {totalPages} 頁
+      </span>
+
+      {currentPage < totalPages ? (
+        <a href={getPageUrl(currentPage + 1)} class="btn btn-secondary btn-sm">
+          下一頁 ›
+        </a>
+      ) : (
+        <span class="btn btn-secondary btn-sm disabled" aria-disabled="true">
+          下一頁 ›
+        </span>
+      )}
+    </div>
+  </nav>
+)}
+
+<style>
+  .pagination-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-top: 1.5rem;
+  }
+  .pagination {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .page-info {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+  }
+  .disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+</style>

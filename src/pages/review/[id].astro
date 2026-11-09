@@ -1,0 +1,329 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import StatusBadge from '../../components/StatusBadge.astro';
+import { getLeaveById } from '../../db/queries/leaves';
+import { LEAVE_TYPES } from '../../config/constants';
+
+const user = Astro.locals.user;
+if (!user || (user.role !== 'teacher' && user.role !== 'admin')) {
+  return Astro.redirect('/login');
+}
+
+const leaveId = Astro.params.id;
+if (!leaveId) return Astro.redirect('/review');
+
+const leave = getLeaveById(leaveId);
+
+
+if (!leave || (user.role === 'teacher' && leave.teacher_id !== user.id)) {
+  return Astro.redirect('/review');
+}
+
+const typeLabel = (LEAVE_TYPES as any)[leave.leave_type]?.label || leave.leave_type;
+---
+
+<DashboardLayout title="審核請假申請">
+  <div class="review-detail-page">
+    <div class="page-header">
+      <div>
+        <a href="/review" class="back-link">‹ 返回審核清單</a>
+        <h1 class="page-title">請假單審核</h1>
+      </div>
+      <StatusBadge status={leave.status} />
+    </div>
+
+    <div class="card detail-card">
+      <div id="errorAlert" class="alert alert-error" style="display: none;" role="alert"></div>
+      <div id="successAlert" class="alert alert-success" style="display: none;" role="alert"></div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 info-grid">
+        <div class="info-item">
+          <span class="info-label">申請學生</span>
+          <span class="info-val">
+            <strong>{leave.student_name}</strong>
+            <span class="sub-val">({leave.student_id} • {leave.department_name})</span>
+          </span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">請假課程</span>
+          <span class="info-val">{leave.course_name} ({leave.course_id})</span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">請假日期</span>
+          <span class="info-val">
+            {leave.start_date === leave.end_date ? (
+              leave.start_date
+            ) : (
+              `${leave.start_date} ~ ${leave.end_date}`
+            )}
+          </span>
+        </div>
+
+        <div class="info-item">
+          <span class="info-label">節次與假別</span>
+          <span class="info-val">
+            第 {leave.periods.join(', ')} 節 • <strong>{typeLabel}</strong>
+          </span>
+        </div>
+
+        <div class="info-item full-width">
+          <span class="info-label">請假事由說明</span>
+          <div class="reason-box">{leave.reason}</div>
+        </div>
+
+        <div class="info-item full-width">
+          <span class="info-label">佐證附件</span>
+          {leave.attachment ? (
+            <div class="attachment-box">
+              <span class="att-name">{leave.attachment.original_name} ({(leave.attachment.file_size / 1024).toFixed(1)} KB)</span>
+              <a
+                href={`/api/attachments/${leave.attachment.id}`}
+                target="_blank"
+                rel="noopener"
+                class="btn btn-secondary btn-sm"
+              >
+                下載 / 線上預覽
+              </a>
+            </div>
+          ) : (
+            <span class="info-val text-muted">學生未檢附佐證文件</span>
+          )}
+        </div>
+
+        {leave.reviewed_at && (
+          <div class="info-item full-width reviewed-info">
+            <span class="info-label">先前審核紀錄</span>
+            <div class="history-box">
+              <div>審核人：{leave.reviewer_name || leave.reviewed_by}</div>
+              <div>時間：{leave.reviewed_at}</div>
+              {leave.review_comment && <div>意見：{leave.review_comment}</div>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {leave.status === 'pending' ? (
+        <div class="review-action-box">
+          <h3 class="section-title">審核決定</h3>
+
+          <div class="form-group">
+            <label for="reviewComment" class="form-label">
+              審核意見 / 備註說明
+              <span id="commentRequiredTag" class="required" style="display: none;">* 駁回時必填</span>
+            </label>
+            <textarea
+              id="reviewComment"
+              class="form-control"
+              placeholder="請輸入核准備註或駁回原因（駁回必填）..."
+              rows="3"
+            ></textarea>
+          </div>
+
+          <div class="action-buttons">
+            <button type="button" id="approveBtn" class="btn btn-primary" data-id={leave.id}>
+              ✓ 核准請假
+            </button>
+            <button type="button" id="rejectBtn" class="btn btn-danger" data-id={leave.id}>
+              ✕ 駁回申請
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div class="status-locked-footer">
+          <p class="locked-text">
+            此請假單已審核完成，狀態為「{(leave.status === 'approved' ? '已核准' : leave.status === 'rejected' ? '已駁回' : '已撤回')}」。
+          </p>
+        </div>
+      )}
+    </div>
+  </div>
+
+  <script is:inline>
+    const approveBtn = document.getElementById('approveBtn');
+    const rejectBtn = document.getElementById('rejectBtn');
+    const commentInput = document.getElementById('reviewComment');
+    const errorAlert = document.getElementById('errorAlert');
+    const successAlert = document.getElementById('successAlert');
+
+    async function submitReview(decision) {
+      errorAlert.style.display = 'none';
+      successAlert.style.display = 'none';
+
+      const leaveId = approveBtn?.getAttribute('data-id');
+      const comment = commentInput?.value.trim() || '';
+
+      if (decision === 'rejected' && (!comment || comment.length === 0)) {
+        errorAlert.textContent = '駁回請假申請時，必須填寫審核意見（駁回原因）';
+        errorAlert.style.display = 'block';
+        commentInput?.focus();
+        return;
+      }
+
+      const confirmMsg = decision === 'approved'
+        ? '確定要核准此筆學生請假申請嗎？'
+        : '確定要駁回此筆學生請假申請嗎？';
+
+      if (!confirm(confirmMsg)) return;
+
+      const csrfToken = document.querySelector('.app-layout')?.getAttribute('data-csrf') || '';
+
+      if (approveBtn) approveBtn.disabled = true;
+      if (rejectBtn) rejectBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/leaves/review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify({
+            leaveId,
+            decision,
+            comment
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          errorAlert.textContent = data.error || '審核處理失敗';
+          errorAlert.style.display = 'block';
+          if (approveBtn) approveBtn.disabled = false;
+          if (rejectBtn) rejectBtn.disabled = false;
+          return;
+        }
+
+        successAlert.textContent = data.data?.message || '審核已成功完成！正在返回審核清單...';
+        successAlert.style.display = 'block';
+
+        setTimeout(() => {
+          window.location.href = '/review';
+        }, 1200);
+      } catch {
+        errorAlert.textContent = '網路通訊異常，請稍後重試';
+        errorAlert.style.display = 'block';
+        if (approveBtn) approveBtn.disabled = false;
+        if (rejectBtn) rejectBtn.disabled = false;
+      }
+    }
+
+    approveBtn?.addEventListener('click', () => submitReview('approved'));
+    rejectBtn?.addEventListener('click', () => submitReview('rejected'));
+  </script>
+</DashboardLayout>
+
+<style>
+  .review-detail-page {
+    max-width: 780px;
+    margin: 0 auto;
+  }
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+  .back-link {
+    font-size: 0.88rem;
+    color: var(--accent);
+    display: inline-block;
+    margin-bottom: 0.25rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .detail-card {
+    background-color: var(--bg-surface);
+  }
+  .info-grid {
+    gap: 1.25rem;
+  }
+  .full-width {
+    grid-column: 1 / -1;
+  }
+  .info-label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+  }
+  .info-val {
+    font-size: 0.95rem;
+    font-weight: 500;
+  }
+  .sub-val {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: normal;
+  }
+  .reason-box {
+    background-color: var(--bg-subtle);
+    padding: 0.9rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    word-break: break-all;
+  }
+  .attachment-box {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background-color: var(--bg-subtle);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+  }
+  .reviewed-info {
+    border-top: 1px dashed var(--border-color);
+    padding-top: 1rem;
+  }
+  .history-box {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .review-action-box {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+  }
+  .section-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+  .action-buttons {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.25rem;
+  }
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    margin-bottom: 1.25rem;
+  }
+  .alert-error {
+    background-color: var(--status-rejected-bg);
+    color: var(--status-rejected-text);
+  }
+  .alert-success {
+    background-color: var(--accent-green-light);
+    color: var(--accent-green);
+  }
+  .status-locked-footer {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+  }
+  .locked-text {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+  }
+</style>

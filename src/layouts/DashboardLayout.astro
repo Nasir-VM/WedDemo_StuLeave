@@ -1,0 +1,328 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import { env } from '../config/env';
+
+interface Props {
+  title?: string;
+}
+
+const { title } = Astro.props;
+const user = Astro.locals.user;
+const csrfToken = Astro.locals.csrfToken;
+const currentPath = Astro.url.pathname;
+const schoolName = env.SCHOOL_NAME;
+
+const navItems = [];
+
+if (user?.role === 'student') {
+  navItems.push(
+    { path: '/student', label: '我的請假', icon: 'list' },
+    { path: '/student/apply', label: '提出申請', icon: 'plus' }
+  );
+} else if (user?.role === 'teacher') {
+  navItems.push(
+    { path: '/review', label: '審核清單', icon: 'check-square' },
+    { path: '/stats', label: '課程統計', icon: 'pie-chart' }
+  );
+} else if (user?.role === 'admin') {
+  navItems.push(
+    { path: '/review', label: '全校審核', icon: 'check-square' },
+    { path: '/stats', label: '全校統計', icon: 'pie-chart' },
+    { path: '/admin/users', label: '使用者管理', icon: 'users' },
+    { path: '/admin/courses', label: '課程維護', icon: 'book' },
+    { path: '/admin/audit', label: '稽核日誌', icon: 'file-text' }
+  );
+}
+
+const roleNames = {
+  student: '學生',
+  teacher: '教師',
+  admin: '管理員'
+};
+---
+
+<BaseLayout title={title}>
+  <div class="app-layout" data-csrf={csrfToken}>
+    
+    <header class="top-nav">
+      <div class="nav-container">
+        <a href="/" class="brand">
+          <svg class="brand-logo" viewBox="0 0 32 32" width="28" height="28">
+            <rect width="32" height="32" rx="7" fill="var(--accent)" />
+            <path d="M8 10h16v3H8zM8 15h16v3H8zM8 20h10v3H8z" fill="#FAF8F5" rx="1.5" />
+          </svg>
+          <span class="school-title">{schoolName}</span>
+          <span class="system-sub">學生請假系統</span>
+        </a>
+
+        {user && (
+          <div class="user-profile">
+            <div class="user-meta">
+              <span class="user-name">{user.name}</span>
+              <span class="user-role-badge">
+                {roleNames[user.role as keyof typeof roleNames] || user.role}
+              </span>
+            </div>
+            <button id="logoutBtn" class="btn btn-secondary btn-sm" aria-label="登出">
+              登出
+            </button>
+          </div>
+        )}
+      </div>
+    </header>
+
+    <div class="body-container">
+      
+      <aside class="desktop-sidebar">
+        <nav class="sidebar-nav">
+          {navItems.map((item) => {
+            const isActive = currentPath === item.path || (item.path !== '/' && currentPath.startsWith(item.path + '/'));
+            return (
+              <a href={item.path} class={`sidebar-link ${isActive ? 'active' : ''}`}>
+                <span class="nav-text">{item.label}</span>
+              </a>
+            );
+          })}
+        </nav>
+      </aside>
+
+      
+      <main class="main-content">
+        <slot />
+      </main>
+    </div>
+
+    
+    <nav class="mobile-bottom-bar" aria-label="行動版導航">
+      <div class="bottom-bar-items">
+        {navItems.map((item) => {
+          const isActive = currentPath === item.path || (item.path !== '/' && currentPath.startsWith(item.path + '/'));
+          return (
+            <a href={item.path} class={`bottom-item ${isActive ? 'active' : ''}`}>
+              <span class="bottom-label">{item.label}</span>
+            </a>
+          );
+        })}
+      </div>
+    </nav>
+  </div>
+
+  <script is:inline>
+    
+    document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+      const csrfToken = document.querySelector('.app-layout')?.getAttribute('data-csrf') || '';
+      try {
+        const res = await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          }
+        });
+        const data = await res.json();
+        if (data.redirect) {
+          window.location.href = data.redirect;
+        } else {
+          window.location.href = '/login';
+        }
+      } catch (err) {
+        window.location.href = '/login';
+      }
+    });
+  </script>
+</BaseLayout>
+
+<style>
+  .app-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+
+  .top-nav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .nav-container {
+    max-width: 1280px;
+    margin: 0 auto;
+    height: 60px;
+    padding: 0 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--text-main);
+  }
+
+  .brand-logo {
+    flex-shrink: 0;
+  }
+
+  .school-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .system-sub {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    border-left: 1px solid var(--border-color);
+    padding-left: 0.65rem;
+  }
+
+  @media (max-width: 480px) {
+    .system-sub {
+      display: none;
+    }
+  }
+
+  .user-profile {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .user-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .user-name {
+    font-weight: 500;
+  }
+
+  .user-role-badge {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-subtle);
+    color: var(--text-muted);
+  }
+
+  .body-container {
+    display: flex;
+    flex: 1;
+    max-width: 1280px;
+    width: 100%;
+    margin: 0 auto;
+    padding-bottom: 72px; 
+  }
+
+  @media (min-width: 768px) {
+    .body-container {
+      padding-bottom: 2rem;
+    }
+  }
+
+  
+  .desktop-sidebar {
+    display: none;
+    width: 220px;
+    padding: 2rem 1.25rem 2rem 0;
+    flex-shrink: 0;
+  }
+
+  @media (min-width: 768px) {
+    .desktop-sidebar {
+      display: block;
+    }
+  }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .sidebar-link {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    transition: all 0.15s ease;
+  }
+
+  .sidebar-link:hover {
+    background-color: var(--bg-subtle);
+    color: var(--text-main);
+  }
+
+  .sidebar-link.active {
+    background-color: var(--accent-light);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  
+  .main-content {
+    flex: 1;
+    min-width: 0;
+    padding: 1.5rem 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .main-content {
+      padding: 2rem 1.25rem;
+    }
+  }
+
+  
+  .mobile-bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    background-color: var(--bg-surface);
+    border-top: 1px solid var(--border-color);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.03);
+  }
+
+  @media (min-width: 768px) {
+    .mobile-bottom-bar {
+      display: none;
+    }
+  }
+
+  .bottom-bar-items {
+    display: flex;
+    height: 60px;
+    align-items: center;
+    justify-content: space-around;
+  }
+
+  .bottom-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    height: 100%;
+    min-height: 44px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    transition: color 0.15s ease;
+  }
+
+  .bottom-item.active {
+    color: var(--accent);
+    font-weight: 600;
+  }
+</style>

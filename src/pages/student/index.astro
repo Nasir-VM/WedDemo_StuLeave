@@ -1,0 +1,285 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import StatusBadge from '../../components/StatusBadge.astro';
+import Pagination from '../../components/Pagination.astro';
+import { listLeavesForStudent } from '../../db/queries/leaves';
+import { LEAVE_TYPES } from '../../config/constants';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const url = Astro.url;
+const statusFilter = url.searchParams.get('status') || '';
+const page = parseInt(url.searchParams.get('page') || '1', 10);
+const pageSize = 10;
+const offset = (page - 1) * pageSize;
+
+const { leaves, total } = listLeavesForStudent(user.id, {
+  status: statusFilter || undefined,
+  limit: pageSize,
+  offset
+});
+
+const totalPages = Math.ceil(total / pageSize);
+---
+
+<DashboardLayout title="我的請假紀錄">
+  <div class="student-page">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">我的請假紀錄</h1>
+        <p class="page-sub">查看所有申請狀態、教師審核意見與撤回待審核之假單</p>
+      </div>
+      <a href="/student/apply" class="btn btn-primary">
+        + 線上填寫假單
+      </a>
+    </div>
+
+    
+    <div class="filter-tabs">
+      <a href="/student" class={`tab-pill ${statusFilter === '' ? 'active' : ''}`}>
+        全部 ({total})
+      </a>
+      <a href="/student?status=pending" class={`tab-pill ${statusFilter === 'pending' ? 'active' : ''}`}>
+        待審核
+      </a>
+      <a href="/student?status=approved" class={`tab-pill ${statusFilter === 'approved' ? 'active' : ''}`}>
+        已核准
+      </a>
+      <a href="/student?status=rejected" class={`tab-pill ${statusFilter === 'rejected' ? 'active' : ''}`}>
+        已駁回
+      </a>
+      <a href="/student?status=withdrawn" class={`tab-pill ${statusFilter === 'withdrawn' ? 'active' : ''}`}>
+        已撤回
+      </a>
+    </div>
+
+    {leaves.length === 0 ? (
+      <div class="card empty-state">
+        <p class="empty-text">目前尚無相關請假紀錄</p>
+        <a href="/student/apply" class="btn btn-secondary btn-sm" style="margin-top: 1rem;">
+          立即提出請假
+        </a>
+      </div>
+    ) : (
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>課程名稱</th>
+              <th>請假日期</th>
+              <th>節次</th>
+              <th>假別</th>
+              <th>事由</th>
+              <th>審核狀態</th>
+              <th>審核意見</th>
+              <th>附件</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leaves.map((item) => {
+              const typeLabel = (LEAVE_TYPES as any)[item.leave_type]?.label || item.leave_type;
+              return (
+                <tr>
+                  <td>
+                    <strong>{item.course_name}</strong>
+                    <div class="td-sub">{item.teacher_name}</div>
+                  </td>
+                  <td>
+                    {item.start_date === item.end_date ? (
+                      item.start_date
+                    ) : (
+                      <span>{item.start_date} ~ {item.end_date}</span>
+                    )}
+                  </td>
+                  <td>
+                    <span class="period-tag">
+                      第 {item.periods.join(', ')} 節
+                    </span>
+                  </td>
+                  <td>{typeLabel}</td>
+                  <td class="reason-cell" title={item.reason}>
+                    {item.reason}
+                  </td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td class="comment-cell">
+                    {item.review_comment ? (
+                      <span class="review-comment">{item.review_comment}</span>
+                    ) : (
+                      <span class="no-comment">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {item.attachment ? (
+                      <a
+                        href={`/api/attachments/${item.attachment.id}`}
+                        target="_blank"
+                        rel="noopener"
+                        class="att-link"
+                        title={item.attachment.original_name}
+                      >
+                        檢視附件
+                      </a>
+                    ) : (
+                      <span class="no-att">—</span>
+                    )}
+                  </td>
+                  <td>
+                    <div class="action-cell">
+                      <a href={`/student/${item.id}`} class="btn btn-secondary btn-sm">
+                        明細
+                      </a>
+                      {item.status === 'pending' && (
+                        <button
+                          type="button"
+                          class="btn btn-danger btn-sm withdraw-btn"
+                          data-id={item.id}
+                        >
+                          撤回
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    <Pagination currentPage={page} totalPages={totalPages} baseUrl={url.pathname + (statusFilter ? `?status=${statusFilter}` : '')} />
+  </div>
+
+  <script is:inline>
+    
+    document.querySelectorAll('.withdraw-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const leaveId = btn.getAttribute('data-id');
+        if (!confirm('確定要撤回此筆待審核之請假申請嗎？')) return;
+
+        const csrfToken = document.querySelector('.app-layout')?.getAttribute('data-csrf') || '';
+
+        try {
+          btn.disabled = true;
+          btn.textContent = '撤回中...';
+
+          const res = await fetch('/api/leaves/withdraw', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-csrf-token': csrfToken
+            },
+            body: JSON.stringify({ leaveId })
+          });
+
+          const data = await res.json();
+          if (res.ok && data.success) {
+            alert('請假單已成功撤回！');
+            window.location.reload();
+          } else {
+            alert(data.error || '撤回失敗');
+            btn.disabled = false;
+            btn.textContent = '撤回';
+          }
+        } catch (err) {
+          alert('網路異常，請稍後再試');
+          btn.disabled = false;
+          btn.textContent = '撤回';
+        }
+      });
+    });
+  </script>
+</DashboardLayout>
+
+<style>
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: var(--text-main);
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  .filter-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+  .tab-pill {
+    padding: 0.4rem 0.85rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    white-space: nowrap;
+    transition: all 0.15s ease;
+  }
+  .tab-pill.active {
+    background-color: var(--accent);
+    color: #FFFFFF;
+    border-color: var(--accent);
+    font-weight: 500;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+  }
+  .empty-text {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+  }
+  .td-sub {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: normal;
+  }
+  .period-tag {
+    font-size: 0.82rem;
+    background-color: var(--bg-subtle);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .reason-cell {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .comment-cell {
+    max-width: 160px;
+    font-size: 0.85rem;
+  }
+  .review-comment {
+    color: var(--text-main);
+  }
+  .no-comment, .no-att {
+    color: var(--text-light);
+  }
+  .att-link {
+    color: var(--accent);
+    font-size: 0.85rem;
+    text-decoration: underline;
+  }
+  .action-cell {
+    display: flex;
+    gap: 0.4rem;
+  }
+</style>

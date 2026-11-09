@@ -1,0 +1,17 @@
+---
+import { LEAVE_STATUS, type LeaveStatusCode } from '../config/constants';
+
+interface Props {
+  status: LeaveStatusCode | string;
+}
+
+const { status } = Astro.props;
+const statusConfig = (LEAVE_STATUS as any)[status] || {
+  label: status,
+  code: status
+};
+---
+
+<span class={`badge badge-${status}`}>
+  {statusConfig.label}
+</span>

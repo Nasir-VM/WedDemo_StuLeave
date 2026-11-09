@@ -1,0 +1,251 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import StatusBadge from '../../components/StatusBadge.astro';
+import { getLeaveById } from '../../db/queries/leaves';
+import { LEAVE_TYPES } from '../../config/constants';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const leaveId = Astro.params.id;
+if (!leaveId) return Astro.redirect('/student');
+
+const leave = getLeaveById(leaveId);
+
+
+if (!leave || (leave.student_id !== user.id && user.role !== 'admin')) {
+  return Astro.redirect('/student');
+}
+
+const typeLabel = (LEAVE_TYPES as any)[leave.leave_type]?.label || leave.leave_type;
+---
+
+<DashboardLayout title="請假單明細">
+  <div class="detail-page">
+    <div class="page-header">
+      <div>
+        <a href="/student" class="back-link">‹ 返回假單紀錄</a>
+        <h1 class="page-title">請假單明細</h1>
+      </div>
+      <StatusBadge status={leave.status} />
+    </div>
+
+    <div class="card detail-card">
+      <div class="detail-grid">
+        <div class="detail-item">
+          <span class="detail-label">申請單號</span>
+          <span class="detail-value font-mono">{leave.id}</span>
+        </div>
+
+        <div class="detail-item">
+          <span class="detail-label">課程名稱</span>
+          <span class="detail-value">{leave.course_name} ({leave.course_id})</span>
+        </div>
+
+        <div class="detail-item">
+          <span class="detail-label">授課教師</span>
+          <span class="detail-value">{leave.teacher_name}</span>
+        </div>
+
+        <div class="detail-item">
+          <span class="detail-label">假別</span>
+          <span class="detail-value">{typeLabel}</span>
+        </div>
+
+        <div class="detail-item">
+          <span class="detail-label">請假日期</span>
+          <span class="detail-value">
+            {leave.start_date === leave.end_date ? (
+              leave.start_date
+            ) : (
+              `${leave.start_date} ~ ${leave.end_date}`
+            )}
+          </span>
+        </div>
+
+        <div class="detail-item">
+          <span class="detail-label">請假節次</span>
+          <span class="detail-value">第 {leave.periods.join(', ')} 節</span>
+        </div>
+
+        <div class="detail-item full-width">
+          <span class="detail-label">請假事由</span>
+          <div class="detail-box">{leave.reason}</div>
+        </div>
+
+        <div class="detail-item full-width">
+          <span class="detail-label">佐證附件</span>
+          {leave.attachment ? (
+            <div class="attachment-box">
+              <span>{leave.attachment.original_name} ({(leave.attachment.file_size / 1024).toFixed(1)} KB)</span>
+              <a
+                href={`/api/attachments/${leave.attachment.id}`}
+                target="_blank"
+                rel="noopener"
+                class="btn btn-secondary btn-sm"
+              >
+                下載 / 線上預覽
+              </a>
+            </div>
+          ) : (
+            <span class="detail-value text-muted">無檢附佐證文件</span>
+          )}
+        </div>
+
+        
+        <div class="detail-item full-width review-section">
+          <span class="detail-label">審核結果與意見</span>
+          {leave.reviewed_at ? (
+            <div class="review-box">
+              <div class="review-header">
+                <span>審核人員：{leave.reviewer_name || leave.reviewed_by}</span>
+                <span>審核時間：{leave.reviewed_at}</span>
+              </div>
+              <p class="review-text">
+                {leave.review_comment || '（無特別註記之審核意見）'}
+              </p>
+            </div>
+          ) : (
+            <span class="detail-value text-muted">尚未審核（等待授課教師或管理員審核中）</span>
+          )}
+        </div>
+      </div>
+
+      {leave.status === 'pending' && (
+        <div class="card-footer">
+          <button id="withdrawBtn" class="btn btn-danger" data-id={leave.id}>
+            撤回此筆請假申請
+          </button>
+        </div>
+      )}
+    </div>
+  </div>
+
+  <script is:inline>
+    document.getElementById('withdrawBtn')?.addEventListener('click', async (e) => {
+      const leaveId = e.target.getAttribute('data-id');
+      if (!confirm('確定要撤回此申請單嗎？撤回後無法復原。')) return;
+
+      const csrfToken = document.querySelector('.app-layout')?.getAttribute('data-csrf') || '';
+      try {
+        const res = await fetch('/api/leaves/withdraw', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify({ leaveId })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert('請假申請已成功撤回！');
+          window.location.href = '/student';
+        } else {
+          alert(data.error || '撤回失敗');
+        }
+      } catch {
+        alert('網路異常，請稍後重試');
+      }
+    });
+  </script>
+</DashboardLayout>
+
+<style>
+  .detail-page {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+  .back-link {
+    font-size: 0.88rem;
+    color: var(--accent);
+    display: inline-block;
+    margin-bottom: 0.25rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .detail-card {
+    background-color: var(--bg-surface);
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+  @media (min-width: 640px) {
+    .detail-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .full-width {
+    grid-column: 1 / -1;
+  }
+  .detail-label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+  }
+  .detail-value {
+    font-size: 0.95rem;
+    font-weight: 500;
+  }
+  .font-mono {
+    font-family: monospace;
+    font-size: 0.88rem;
+  }
+  .detail-box {
+    background-color: var(--bg-subtle);
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    word-break: break-all;
+  }
+  .attachment-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background-color: var(--bg-subtle);
+  }
+  .review-section {
+    border-top: 1px dashed var(--border-color);
+    padding-top: 1.25rem;
+    margin-top: 0.5rem;
+  }
+  .review-box {
+    background-color: var(--bg-subtle);
+    padding: 1rem;
+    border-radius: var(--radius-md);
+  }
+  .review-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.35rem;
+  }
+  .review-text {
+    font-size: 0.92rem;
+    line-height: 1.6;
+  }
+  .card-footer {
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+  }
+</style>

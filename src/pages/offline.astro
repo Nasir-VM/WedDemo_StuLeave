@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="離線模式">
+  <div class="offline-page">
+    <div class="offline-card card">
+      <svg class="offline-icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="var(--text-muted)" stroke-width="1.5">
+        <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.58 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
+      </svg>
+      <h1 class="offline-title">目前處於離線狀態</h1>
+      <p class="offline-desc">
+        系統無法連線至校園伺服器。請檢查您的 Wi-Fi 或行動網路連線，連線恢復後即可正常使用。
+      </p>
+      <button onclick="window.location.reload()" class="btn btn-primary">
+        重新嘗試連線
+      </button>
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .offline-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background-color: var(--bg-primary);
+  }
+  .offline-card {
+    max-width: 420px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  .offline-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  .offline-desc {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+</style>

@@ -1,0 +1,488 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import Pagination from '../../components/Pagination.astro';
+import { listCourses, listDepartments } from '../../db/queries/courses';
+import { listUsers } from '../../db/queries/users';
+import { WEEKDAYS } from '../../config/constants';
+
+const user = Astro.locals.user;
+if (!user || user.role !== 'admin') {
+  return Astro.redirect('/login');
+}
+
+const url = Astro.url;
+const searchParams = url.searchParams;
+
+const page = parseInt(searchParams.get('page') || '1', 10);
+const pageSize = 15;
+const offset = (page - 1) * pageSize;
+
+const departmentId = searchParams.get('departmentId') || '';
+const search = searchParams.get('search') || '';
+
+const { courses, total } = listCourses({
+  departmentId: departmentId || undefined,
+  search: search || undefined,
+  limit: pageSize,
+  offset
+});
+
+const departments = listDepartments();
+const teachers = listUsers({ role: 'teacher', limit: 100 }).users;
+const students = listUsers({ role: 'student', limit: 100 }).users;
+const totalPages = Math.ceil(total / pageSize);
+const csrfToken = Astro.locals.csrfToken;
+---
+
+<DashboardLayout title="課程與選課名單管理">
+  <div class="courses-page">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">課程與選課管理</h1>
+        <p class="page-sub">開設學期課程、指派授課教師與維護學生選課名單</p>
+      </div>
+      <div class="header-actions">
+        <button type="button" id="openEnrollModalBtn" class="btn btn-secondary">
+          + 學生選課註冊
+        </button>
+        <button type="button" id="openCreateCourseModalBtn" class="btn btn-primary">
+          + 開設新課程
+        </button>
+      </div>
+    </div>
+
+    
+    <div class="card filter-card">
+      <form method="GET" class="filter-form">
+        <div class="filter-grid">
+          <div class="filter-group">
+            <label class="filter-label" for="deptSelect">開課系所</label>
+            <select id="deptSelect" name="departmentId" class="form-control form-control-sm">
+              <option value="">全部系所</option>
+              {departments.map((d) => (
+                <option value={d.id} selected={departmentId === d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="searchInput">搜尋課程</label>
+            <input
+              type="text"
+              id="searchInput"
+              name="search"
+              class="form-control form-control-sm"
+              placeholder="課程代碼或名稱..."
+              value={search}
+            />
+          </div>
+        </div>
+
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary btn-sm">套用篩選</button>
+          <a href="/admin/courses" class="btn btn-secondary btn-sm">重設</a>
+        </div>
+      </form>
+    </div>
+
+    
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>課程代碼</th>
+            <th>課程名稱</th>
+            <th>學年期</th>
+            <th>開課系所</th>
+            <th>授課教師</th>
+            <th>上課時間</th>
+            <th>修課人數</th>
+          </tr>
+        </thead>
+        <tbody>
+          {courses.map((c) => {
+            const dayLabel = WEEKDAYS.find((w) => w.day === c.weekday)?.label || '';
+            return (
+              <tr>
+                <td><code>{c.id}</code></td>
+                <td><strong>{c.name}</strong></td>
+                <td>{c.academic_year}</td>
+                <td>{c.department_name}</td>
+                <td>{c.teacher_name} ({c.teacher_id})</td>
+                <td>
+                  <span class="schedule-tag">
+                    {dayLabel} 第 {c.start_period}~{c.end_period} 節
+                  </span>
+                </td>
+                <td>
+                  <span class="badge badge-approved">
+                    {c.enrollment_count || 0} 人
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    <Pagination currentPage={page} totalPages={totalPages} baseUrl={url.pathname + url.search} />
+
+    
+    <div id="createCourseModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card">
+        <div class="modal-header">
+          <h2 class="modal-title">開設新課程</h2>
+          <button type="button" class="close-btn" data-modal="createCourseModal" aria-label="關閉">✕</button>
+        </div>
+
+        <div id="courseModalAlert" class="alert alert-error" style="display: none;" role="alert"></div>
+
+        <form id="createCourseForm" novalidate>
+          <input type="hidden" name="csrf_token" value={csrfToken} />
+
+          <div class="form-group">
+            <label class="form-label" for="courseCode">
+              課程代碼 <span class="required">*</span>
+            </label>
+            <input type="text" id="courseCode" name="id" class="form-control" placeholder="例如：CS301" required />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="courseName">
+              課程名稱 <span class="required">*</span>
+            </label>
+            <input type="text" id="courseName" name="name" class="form-control" placeholder="例如：演算法" required />
+          </div>
+
+          <div class="grid grid-cols-2">
+            <div class="form-group">
+              <label class="form-label" for="courseDept">
+                開課系所 <span class="required">*</span>
+              </label>
+              <select id="courseDept" name="departmentId" class="form-control" required>
+                {departments.map((d) => (
+                  <option value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="courseTeacher">
+                授課教師 <span class="required">*</span>
+              </label>
+              <select id="courseTeacher" name="teacherId" class="form-control" required>
+                {teachers.map((t) => (
+                  <option value={t.id}>{t.name} ({t.id})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="courseYear">
+              學年期 <span class="required">*</span>
+            </label>
+            <input type="text" id="courseYear" name="academicYear" class="form-control" value="113-1" required />
+          </div>
+
+          <div class="grid grid-cols-3">
+            <div class="form-group">
+              <label class="form-label" for="courseWeekday">星期</label>
+              <select id="courseWeekday" name="weekday" class="form-control">
+                {WEEKDAYS.map((w) => (
+                  <option value={w.day}>{w.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="startPeriod">起始節次</label>
+              <input type="number" id="startPeriod" name="startPeriod" class="form-control" min="1" max="14" value="1" required />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="endPeriod">結束節次</label>
+              <input type="number" id="endPeriod" name="endPeriod" class="form-control" min="1" max="14" value="3" required />
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-modal="createCourseModal">取消</button>
+            <button type="submit" id="saveCourseBtn" class="btn btn-primary">確認開課</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    
+    <div id="enrollModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card">
+        <div class="modal-header">
+          <h2 class="modal-title">學生選課名單註冊</h2>
+          <button type="button" class="close-btn" data-modal="enrollModal" aria-label="關閉">✕</button>
+        </div>
+
+        <div id="enrollModalAlert" class="alert alert-error" style="display: none;" role="alert"></div>
+
+        <form id="enrollForm" novalidate>
+          <input type="hidden" name="csrf_token" value={csrfToken} />
+
+          <div class="form-group">
+            <label class="form-label" for="enrollCourse">選擇課程 <span class="required">*</span></label>
+            <select id="enrollCourse" name="courseId" class="form-control" required>
+              {courses.map((c) => (
+                <option value={c.id}>{c.id} {c.name} ({c.teacher_name})</option>
+              ))}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="enrollStudent">選擇學生 <span class="required">*</span></label>
+            <select id="enrollStudent" name="studentId" class="form-control" required>
+              {students.map((s) => (
+                <option value={s.id}>{s.name} ({s.id} • {s.department_name})</option>
+              ))}
+            </select>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-modal="enrollModal">取消</button>
+            <button type="submit" id="saveEnrollBtn" class="btn btn-primary">加入名單</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    
+    document.getElementById('openCreateCourseModalBtn')?.addEventListener('click', () => {
+      document.getElementById('createCourseModal').style.display = 'flex';
+    });
+
+    document.getElementById('openEnrollModalBtn')?.addEventListener('click', () => {
+      document.getElementById('enrollModal').style.display = 'flex';
+    });
+
+    document.querySelectorAll('[data-modal]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-modal');
+        if (id) document.getElementById(id).style.display = 'none';
+      });
+    });
+
+    
+    document.getElementById('createCourseForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const alertBox = document.getElementById('courseModalAlert');
+      alertBox.style.display = 'none';
+
+      const id = document.getElementById('courseCode').value.trim();
+      const name = document.getElementById('courseName').value.trim();
+      const departmentId = document.getElementById('courseDept').value;
+      const teacherId = document.getElementById('courseTeacher').value;
+      const academicYear = document.getElementById('courseYear').value.trim();
+      const weekday = Number(document.getElementById('courseWeekday').value);
+      const startPeriod = Number(document.getElementById('startPeriod').value);
+      const endPeriod = Number(document.getElementById('endPeriod').value);
+      const csrfToken = form.querySelector('input[name="csrf_token"]').value;
+
+      try {
+        const res = await fetch('/api/admin/courses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify({
+            action: 'createCourse',
+            id,
+            name,
+            departmentId,
+            teacherId,
+            academicYear,
+            weekday,
+            startPeriod,
+            endPeriod
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert('課程已成功開設！');
+          window.location.reload();
+        } else {
+          alertBox.textContent = data.error || '開設失敗';
+          alertBox.style.display = 'block';
+        }
+      } catch {
+        alertBox.textContent = '網路通訊異常';
+        alertBox.style.display = 'block';
+      }
+    });
+
+    
+    document.getElementById('enrollForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const alertBox = document.getElementById('enrollModalAlert');
+      alertBox.style.display = 'none';
+
+      const courseId = document.getElementById('enrollCourse').value;
+      const studentId = document.getElementById('enrollStudent').value;
+      const csrfToken = form.querySelector('input[name="csrf_token"]').value;
+
+      try {
+        const res = await fetch('/api/admin/courses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify({
+            action: 'enroll',
+            courseId,
+            studentId
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert('學生修課名單加入成功！');
+          window.location.reload();
+        } else {
+          alertBox.textContent = data.error || '選課註冊失敗';
+          alertBox.style.display = 'block';
+        }
+      } catch {
+        alertBox.textContent = '網路通訊異常';
+        alertBox.style.display = 'block';
+      }
+    });
+  </script>
+</DashboardLayout>
+
+<style>
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  .header-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+  .filter-card {
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    background-color: var(--bg-surface);
+  }
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+  @media (min-width: 640px) {
+    .filter-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .filter-label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+    font-weight: 500;
+  }
+  .form-control-sm {
+    min-height: 36px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.88rem;
+  }
+  .filter-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    justify-content: flex-end;
+  }
+  .schedule-tag {
+    font-size: 0.82rem;
+    background-color: var(--bg-subtle);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 1rem;
+  }
+  .modal-content {
+    width: 100%;
+    max-width: 520px;
+    max-height: 90vh;
+    overflow-y: auto;
+    background-color: var(--bg-surface);
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+  }
+  .modal-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+  .close-btn {
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    cursor: pointer;
+    color: var(--text-muted);
+  }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+  }
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    margin-bottom: 1.25rem;
+  }
+  .alert-error {
+    background-color: var(--status-rejected-bg);
+    color: var(--status-rejected-text);
+  }
+</style>

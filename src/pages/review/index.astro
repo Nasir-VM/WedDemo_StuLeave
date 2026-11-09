@@ -1,0 +1,413 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import StatusBadge from '../../components/StatusBadge.astro';
+import Pagination from '../../components/Pagination.astro';
+import { listLeavesForReview } from '../../db/queries/leaves';
+import { getCoursesForTeacher, listCourses } from '../../db/queries/courses';
+import { LEAVE_TYPES, LEAVE_STATUS } from '../../config/constants';
+
+const user = Astro.locals.user;
+if (!user || (user.role !== 'teacher' && user.role !== 'admin')) {
+  return Astro.redirect('/login');
+}
+
+const url = Astro.url;
+const searchParams = url.searchParams;
+
+const page = parseInt(searchParams.get('page') || '1', 10);
+const pageSize = 15;
+const offset = (page - 1) * pageSize;
+
+const status = searchParams.get('status') || 'pending';
+const courseId = searchParams.get('courseId') || '';
+const leaveType = searchParams.get('leaveType') || '';
+const search = searchParams.get('search') || '';
+const startDate = searchParams.get('startDate') || '';
+const endDate = searchParams.get('endDate') || '';
+
+
+const availableCourses = user.role === 'teacher'
+  ? getCoursesForTeacher(user.id)
+  : listCourses({ limit: 100 }).courses;
+
+const { leaves, total } = listLeavesForReview({
+  teacherId: user.role === 'teacher' ? user.id : undefined,
+  status: status === 'all' ? undefined : status,
+  courseId: courseId || undefined,
+  leaveType: leaveType || undefined,
+  search: search || undefined,
+  startDate: startDate || undefined,
+  endDate: endDate || undefined,
+  limit: pageSize,
+  offset
+});
+
+const totalPages = Math.ceil(total / pageSize);
+---
+
+<DashboardLayout title="課堂請假審核">
+  <div class="review-page">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">{user.role === 'admin' ? '全校學生請假審核' : '授課課程請假審核'}</h1>
+        <p class="page-sub">
+          {user.role === 'admin' ? '管理員具備全校請假單審核與批次管理權限' : '授課教師請假審核與出席紀錄管理'}
+        </p>
+      </div>
+    </div>
+
+    
+    <div class="card filter-card">
+      <form method="GET" class="filter-form">
+        <div class="filter-grid">
+          <div class="filter-group">
+            <label class="filter-label" for="statusSelect">審核狀態</label>
+            <select id="statusSelect" name="status" class="form-control form-control-sm">
+              <option value="pending" selected={status === 'pending'}>待審核</option>
+              <option value="approved" selected={status === 'approved'}>已核准</option>
+              <option value="rejected" selected={status === 'rejected'}>已駁回</option>
+              <option value="all" selected={status === 'all'}>全部狀態</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="courseSelect">課程</label>
+            <select id="courseSelect" name="courseId" class="form-control form-control-sm">
+              <option value="">全部課程</option>
+              {availableCourses.map((c) => (
+                <option value={c.id} selected={courseId === c.id}>
+                  {c.id} {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="typeSelect">假別</label>
+            <select id="typeSelect" name="leaveType" class="form-control form-control-sm">
+              <option value="">全部假別</option>
+              {Object.entries(LEAVE_TYPES).map(([code, item]) => (
+                <option value={code} selected={leaveType === code}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="searchInput">搜尋</label>
+            <input
+              type="text"
+              id="searchInput"
+              name="search"
+              class="form-control form-control-sm"
+              placeholder="學號、姓名或事由..."
+              value={search}
+            />
+          </div>
+        </div>
+
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary btn-sm">套用篩選</button>
+          <a href="/review" class="btn btn-secondary btn-sm">清除重設</a>
+        </div>
+      </form>
+    </div>
+
+    
+    <div class="batch-bar">
+      <div class="batch-select-info">
+        <label class="select-all-label">
+          <input type="checkbox" id="selectAllCheckbox" />
+          <span>全選當頁</span>
+        </label>
+        <span id="selectedCountText" class="count-text">已選取 0 筆</span>
+      </div>
+
+      <div class="batch-actions">
+        <button type="button" id="batchApproveBtn" class="btn btn-primary btn-sm" disabled>
+          批次核准
+        </button>
+        <button type="button" id="batchRejectBtn" class="btn btn-danger btn-sm" disabled>
+          批次駁回
+        </button>
+      </div>
+    </div>
+
+    
+    {leaves.length === 0 ? (
+      <div class="card empty-card">
+        <p>目前查無符合條件之請假申請單</p>
+      </div>
+    ) : (
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th width="40">選取</th>
+              <th>學生</th>
+              <th>課程</th>
+              <th>日期</th>
+              <th>節次</th>
+              <th>假別</th>
+              <th>事由</th>
+              <th>附件</th>
+              <th>狀態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leaves.map((item) => {
+              const typeLabel = (LEAVE_TYPES as any)[item.leave_type]?.label || item.leave_type;
+              return (
+                <tr>
+                  <td>
+                    {item.status === 'pending' ? (
+                      <input type="checkbox" class="leave-checkbox" value={item.id} />
+                    ) : (
+                      <span class="text-light">—</span>
+                    )}
+                  </td>
+                  <td>
+                    <strong>{item.student_name}</strong>
+                    <div class="td-sub">{item.student_id} • {item.department_name || ''}</div>
+                  </td>
+                  <td>
+                    {item.course_name}
+                    <div class="td-sub">{item.course_id}</div>
+                  </td>
+                  <td>
+                    {item.start_date === item.end_date ? (
+                      item.start_date
+                    ) : (
+                      <span>{item.start_date} ~ {item.end_date}</span>
+                    )}
+                  </td>
+                  <td>
+                    <span class="period-badge">
+                      {item.periods.join(', ')} 節
+                    </span>
+                  </td>
+                  <td>{typeLabel}</td>
+                  <td class="reason-cell" title={item.reason}>
+                    {item.reason}
+                  </td>
+                  <td>
+                    {item.attachment ? (
+                      <a
+                        href={`/api/attachments/${item.attachment.id}`}
+                        target="_blank"
+                        rel="noopener"
+                        class="att-link"
+                      >
+                        檢視附件
+                      </a>
+                    ) : (
+                      <span class="text-light">—</span>
+                    )}
+                  </td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
+                  <td>
+                    <a href={`/review/${item.id}`} class="btn btn-secondary btn-sm">
+                      {item.status === 'pending' ? '審核' : '檢視'}
+                    </a>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    <Pagination currentPage={page} totalPages={totalPages} baseUrl={url.pathname + url.search} />
+  </div>
+
+  <script is:inline>
+    const selectAll = document.getElementById('selectAllCheckbox');
+    const checkboxes = document.querySelectorAll('.leave-checkbox');
+    const selectedCountText = document.getElementById('selectedCountText');
+    const batchApproveBtn = document.getElementById('batchApproveBtn');
+    const batchRejectBtn = document.getElementById('batchRejectBtn');
+
+    function updateBatchState() {
+      const checkedBoxes = Array.from(checkboxes).filter((cb) => cb.checked);
+      const count = checkedBoxes.length;
+      if (selectedCountText) selectedCountText.textContent = `已選取 ${count} 筆`;
+      if (batchApproveBtn) batchApproveBtn.disabled = count === 0;
+      if (batchRejectBtn) batchRejectBtn.disabled = count === 0;
+      if (selectAll) selectAll.checked = count > 0 && count === checkboxes.length;
+    }
+
+    selectAll?.addEventListener('change', () => {
+      checkboxes.forEach((cb) => {
+        cb.checked = selectAll.checked;
+      });
+      updateBatchState();
+    });
+
+    checkboxes.forEach((cb) => {
+      cb.addEventListener('change', updateBatchState);
+    });
+
+    async function submitBatch(decision) {
+      const selectedIds = Array.from(document.querySelectorAll('.leave-checkbox:checked')).map((c) => c.value);
+      if (selectedIds.length === 0) return;
+
+      let comment = '';
+      if (decision === 'rejected') {
+        const input = prompt('請輸入批次駁回之審核意見（必填）：');
+        if (!input || input.trim().length === 0) {
+          alert('駁回時必須填寫審核意見');
+          return;
+        }
+        comment = input.trim();
+      } else {
+        if (!confirm(`確定要批次核准選取的 ${selectedIds.length} 筆請假單嗎？`)) return;
+      }
+
+      const csrfToken = document.querySelector('.app-layout')?.getAttribute('data-csrf') || '';
+
+      try {
+        const res = await fetch('/api/leaves/batch-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify({
+            leaveIds: selectedIds,
+            decision,
+            comment
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          alert(data.data?.message || '批次處理完成！');
+          window.location.reload();
+        } else {
+          alert(data.error || '批次審核失敗');
+        }
+      } catch {
+        alert('網路異常，請稍後重試');
+      }
+    }
+
+    batchApproveBtn?.addEventListener('click', () => submitBatch('approved'));
+    batchRejectBtn?.addEventListener('click', () => submitBatch('rejected'));
+  </script>
+</DashboardLayout>
+
+<style>
+  .page-header {
+    margin-bottom: 1.25rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  .filter-card {
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+    background-color: var(--bg-surface);
+  }
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+  @media (min-width: 640px) {
+    .filter-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 1024px) {
+    .filter-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  .filter-label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+    font-weight: 500;
+  }
+  .form-control-sm {
+    min-height: 36px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.88rem;
+  }
+  .filter-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    justify-content: flex-end;
+  }
+  .batch-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .batch-select-info {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    font-size: 0.88rem;
+  }
+  .select-all-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+  }
+  .count-text {
+    color: var(--text-muted);
+  }
+  .batch-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .empty-card {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-muted);
+  }
+  .td-sub {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  .period-badge {
+    font-size: 0.82rem;
+    background-color: var(--bg-subtle);
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .reason-cell {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .att-link {
+    color: var(--accent);
+    font-size: 0.85rem;
+    text-decoration: underline;
+  }
+</style>

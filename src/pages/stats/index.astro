@@ -1,0 +1,384 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import SvgChart from '../../components/SvgChart.astro';
+import {
+  getOverviewStats,
+  getLeaveTypeDistribution,
+  getMonthlyTrends,
+  getCourseRankings,
+  getDepartmentDistribution,
+  getStudentCareRankings
+} from '../../db/queries/stats';
+import { listDepartments, listCourses, getCoursesForTeacher } from '../../db/queries/courses';
+
+const user = Astro.locals.user;
+if (!user || (user.role !== 'teacher' && user.role !== 'admin')) {
+  return Astro.redirect('/login');
+}
+
+const url = Astro.url;
+const searchParams = url.searchParams;
+
+const departmentId = searchParams.get('departmentId') || '';
+const courseId = searchParams.get('courseId') || '';
+const startDate = searchParams.get('startDate') || '';
+const endDate = searchParams.get('endDate') || '';
+
+const filter = {
+  teacherId: user.role === 'teacher' ? user.id : undefined,
+  departmentId: departmentId || undefined,
+  courseId: courseId || undefined,
+  startDate: startDate || undefined,
+  endDate: endDate || undefined
+};
+
+
+const overview = getOverviewStats(filter);
+const leaveTypesData = getLeaveTypeDistribution(filter);
+const monthlyTrends = getMonthlyTrends(filter);
+const courseRankings = getCourseRankings(filter);
+const deptDistribution = getDepartmentDistribution(filter);
+const careRankings = getStudentCareRankings(filter);
+
+const departments = listDepartments();
+const courses = user.role === 'teacher'
+  ? getCoursesForTeacher(user.id)
+  : listCourses({ limit: 100 }).courses;
+
+
+const exportUrl = new URL('/stats/export.csv', url.origin);
+if (departmentId) exportUrl.searchParams.set('departmentId', departmentId);
+if (courseId) exportUrl.searchParams.set('courseId', courseId);
+if (startDate) exportUrl.searchParams.set('startDate', startDate);
+if (endDate) exportUrl.searchParams.set('endDate', endDate);
+---
+
+<DashboardLayout title="請假統計分析">
+  <div class="stats-page">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">{user.role === 'admin' ? '全校學生請假統計與分析' : '課程請假統計分析'}</h1>
+        <p class="page-sub">視覺化請假趨勢、假別分布與學生出席關懷預警名單</p>
+      </div>
+      <a href={exportUrl.pathname + exportUrl.search} class="btn btn-secondary" download>
+        ⬇ 匯出 CSV 報表
+      </a>
+    </div>
+
+    
+    <div class="card filter-card">
+      <form method="GET" class="filter-form">
+        <div class="filter-grid">
+          {user.role === 'admin' && (
+            <div class="filter-group">
+              <label class="filter-label" for="deptSelect">學院 / 系所</label>
+              <select id="deptSelect" name="departmentId" class="form-control form-control-sm">
+                <option value="">全校系所</option>
+                {departments.map((d) => (
+                  <option value={d.id} selected={departmentId === d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div class="filter-group">
+            <label class="filter-label" for="courseSelect">課程</label>
+            <select id="courseSelect" name="courseId" class="form-control form-control-sm">
+              <option value="">全部課程</option>
+              {courses.map((c) => (
+                <option value={c.id} selected={courseId === c.id}>
+                  {c.id} {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="startDate">起算日期</label>
+            <input
+              type="date"
+              id="startDate"
+              name="startDate"
+              class="form-control form-control-sm"
+              value={startDate}
+            />
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="endDate">截止日期</label>
+            <input
+              type="date"
+              id="endDate"
+              name="endDate"
+              class="form-control form-control-sm"
+              value={endDate}
+            />
+          </div>
+        </div>
+
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary btn-sm">套用篩選</button>
+          <a href="/stats" class="btn btn-secondary btn-sm">重設</a>
+        </div>
+      </form>
+    </div>
+
+    
+    <div class="grid grid-cols-2 md:grid-cols-4 overview-grid">
+      <div class="card stat-card">
+        <span class="stat-title">本週請假人次</span>
+        <span class="stat-number">{overview.weekCount}</span>
+        <span class="stat-hint">近 7 天累計</span>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-title">本月請假人次</span>
+        <span class="stat-number">{overview.monthCount}</span>
+        <span class="stat-hint">本月累計</span>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-title">待審核假單</span>
+        <span class="stat-number text-warning">{overview.pendingCount}</span>
+        <span class="stat-hint">尚待審核</span>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-title">審核核准率</span>
+        <span class="stat-number text-accent">{overview.approvalRate}%</span>
+        <span class="stat-hint">共已審核 {overview.totalReviewed} 件</span>
+      </div>
+    </div>
+
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 charts-grid">
+      
+      <div class="card chart-card">
+        <SvgChart
+          type="donut"
+          title="假別分布比例"
+          data={leaveTypesData.map((d) => ({ label: d.label, value: d.count }))}
+        />
+      </div>
+
+      
+      <div class="card chart-card">
+        <SvgChart
+          type="line"
+          title="每月請假件數趨勢"
+          data={monthlyTrends.map((d) => ({ label: d.month, value: d.count }))}
+        />
+      </div>
+
+      
+      <div class="card chart-card">
+        <SvgChart
+          type="bar"
+          title="課程請假人次排行 (Top 8)"
+          data={courseRankings.map((d) => ({ label: d.course_name, value: d.count }))}
+        />
+      </div>
+
+      
+      <div class="card chart-card">
+        <SvgChart
+          type="bar"
+          title="各系所請假分布"
+          data={deptDistribution.map((d) => ({ label: d.department_name, value: d.count }))}
+        />
+      </div>
+    </div>
+
+    
+    <div class="care-section">
+      <div class="care-header">
+        <div>
+          <h2 class="care-title">學生請假次數關懷預警名單 (Top 10)</h2>
+          <p class="care-sub">此排行供導師、授課教師與系辦公室作為出缺席預警與學習關懷參考</p>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>排行</th>
+              <th>學號</th>
+              <th>學生姓名</th>
+              <th>所屬系所</th>
+              <th>請假總次數</th>
+              <th>已核准</th>
+              <th>已駁回</th>
+              <th>待審核</th>
+              <th>預警狀態</th>
+            </tr>
+          </thead>
+          <tbody>
+            {careRankings.length === 0 ? (
+              <tr>
+                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                  目前無請假紀錄
+                </td>
+              </tr>
+            ) : (
+              careRankings.map((student, idx) => {
+                const isHighRisk = student.total_leaves >= 5;
+                const isMediumRisk = student.total_leaves >= 3;
+                return (
+                  <tr>
+                    <td>
+                      <span class={`rank-badge ${idx < 3 ? 'rank-top' : ''}`}>
+                        {idx + 1}
+                      </span>
+                    </td>
+                    <td><code>{student.student_id}</code></td>
+                    <td><strong>{student.student_name}</strong></td>
+                    <td>{student.department_name || '—'}</td>
+                    <td><strong>{student.total_leaves} 次</strong></td>
+                    <td>{student.approved_leaves}</td>
+                    <td>{student.rejected_leaves}</td>
+                    <td>{student.pending_leaves}</td>
+                    <td>
+                      {isHighRisk ? (
+                        <span class="badge badge-rejected">高頻關懷</span>
+                      ) : isMediumRisk ? (
+                        <span class="badge badge-pending">注意</span>
+                      ) : (
+                        <span class="badge badge-approved">正常</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</DashboardLayout>
+
+<style>
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  .filter-card {
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    background-color: var(--bg-surface);
+  }
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+  @media (min-width: 640px) {
+    .filter-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 1024px) {
+    .filter-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  .filter-label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+    font-weight: 500;
+  }
+  .form-control-sm {
+    min-height: 36px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.88rem;
+  }
+  .filter-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    justify-content: flex-end;
+  }
+  .overview-grid {
+    margin-bottom: 1.5rem;
+  }
+  .stat-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.25rem;
+  }
+  .stat-title {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+  }
+  .stat-number {
+    font-size: 1.8rem;
+    font-weight: 600;
+    line-height: 1.2;
+    margin-bottom: 0.25rem;
+  }
+  .stat-hint {
+    font-size: 0.78rem;
+    color: var(--text-light);
+  }
+  .text-warning {
+    color: var(--status-pending-text);
+  }
+  .text-accent {
+    color: var(--accent);
+  }
+  .charts-grid {
+    margin-bottom: 2rem;
+  }
+  .chart-card {
+    padding: 1.5rem;
+  }
+  .care-section {
+    margin-top: 2rem;
+  }
+  .care-header {
+    margin-bottom: 1rem;
+  }
+  .care-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+  .care-sub {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-top: 0.2rem;
+  }
+  .rank-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: var(--bg-subtle);
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .rank-top {
+    background-color: var(--accent);
+    color: #FFFFFF;
+  }
+</style>

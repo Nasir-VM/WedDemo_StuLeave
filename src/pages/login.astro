@@ -1,0 +1,276 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from '../config/env';
+
+const csrfToken = Astro.locals.csrfToken;
+const schoolName = env.SCHOOL_NAME;
+---
+
+<BaseLayout title="使用者登入">
+  <div class="login-page">
+    <div class="login-container">
+      <div class="login-header">
+        <svg class="school-icon" viewBox="0 0 64 64" width="48" height="48">
+          <rect width="64" height="64" rx="14" fill="#5B7C99" />
+          <path d="M18 20h28v6H18zM18 30h28v6H18zM18 40h18v6H18z" fill="#FAF8F5" rx="3" />
+          <circle cx="44" cy="43" r="5" fill="#7A9E7E" />
+        </svg>
+        <h1 class="system-title">{schoolName}</h1>
+        <p class="system-subtitle">課堂學生線上請假系統</p>
+      </div>
+
+      <div class="card login-card">
+        <div id="errorAlert" class="alert alert-error" style="display: none;" role="alert"></div>
+
+        <form id="loginForm" method="POST" action="/api/auth/login" novalidate>
+          <input type="hidden" name="csrf_token" value={csrfToken} />
+
+          <div class="form-group">
+            <label for="username" class="form-label">
+              學號 / 教職員號 / 電子信箱
+              <span class="required" aria-hidden="true">*</span>
+            </label>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              class="form-control"
+              placeholder="例如：S112001 或 T001"
+              required
+              autocomplete="username"
+              autofocus
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="password" class="form-label">
+              密碼
+              <span class="required" aria-hidden="true">*</span>
+            </label>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              class="form-control"
+              placeholder="請輸入密碼"
+              required
+              autocomplete="current-password"
+            />
+          </div>
+
+          <button type="submit" id="submitBtn" class="btn btn-primary btn-block">
+            安全登入
+          </button>
+        </form>
+
+        
+        <details class="test-accounts-details">
+          <summary class="details-summary">查看系統預設測試帳號</summary>
+          <div class="accounts-table-wrapper">
+            <table class="accounts-table">
+              <thead>
+                <tr>
+                  <th>身分</th>
+                  <th>帳號</th>
+                  <th>密碼</th>
+                  <th>說明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>管理員</td>
+                  <td><code>admin</code></td>
+                  <td><code>12345678</code></td>
+                  <td>全校管理與審核</td>
+                </tr>
+                <tr>
+                  <td>教師</td>
+                  <td><code>T001</code></td>
+                  <td><code>TeacherPassword123!</code></td>
+                  <td>王大明 教授 (CS)</td>
+                </tr>
+                <tr>
+                  <td>學生</td>
+                  <td><code>S112001</code></td>
+                  <td><code>StudentPassword123!</code></td>
+                  <td>首次登入需改密碼</td>
+                </tr>
+                <tr>
+                  <td>學生</td>
+                  <td><code>S112002</code></td>
+                  <td><code>StudentPassword123!</code></td>
+                  <td>一般學生 (CS)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+
+      <footer class="login-footer">
+        <p>© {new Date().getFullYear()} {schoolName} 教務處資訊組 • 簡約日系質感系統</p>
+      </footer>
+    </div>
+  </div>
+
+  <script is:inline>
+    const form = document.getElementById('loginForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const errorAlert = document.getElementById('errorAlert');
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorAlert.style.display = 'none';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const csrfToken = form.querySelector('input[name="csrf_token"]').value;
+
+      if (!username || !password) {
+        errorAlert.textContent = '請完整填寫帳號與密碼';
+        errorAlert.style.display = 'block';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '登入驗證中...';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          errorAlert.textContent = data.error || '登入失敗，請確認帳密是否正確';
+          errorAlert.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = '安全登入';
+          return;
+        }
+
+        
+        window.location.href = data.data.redirect || '/';
+      } catch (err) {
+        errorAlert.textContent = '網路連線異常，請稍後重試';
+        errorAlert.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = '安全登入';
+      }
+    });
+  </script>
+</BaseLayout>
+
+<style>
+  .login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+    background-color: var(--bg-primary);
+  }
+
+  .login-container {
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .login-header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .school-icon {
+    margin-bottom: 0.25rem;
+  }
+
+  .system-title {
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--text-main);
+  }
+
+  .system-subtitle {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+  }
+
+  .login-card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+  }
+
+  .btn-block {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .alert-error {
+    background-color: var(--status-rejected-bg);
+    color: var(--status-rejected-text);
+    border: 1px solid rgba(158, 91, 91, 0.2);
+  }
+
+  .test-accounts-details {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border-color);
+  }
+
+  .details-summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--accent);
+    font-weight: 500;
+    user-select: none;
+  }
+
+  .accounts-table-wrapper {
+    margin-top: 0.75rem;
+    overflow-x: auto;
+  }
+
+  .accounts-table {
+    font-size: 0.8rem;
+    border: 1px solid var(--border-color);
+  }
+
+  .accounts-table th, .accounts-table td {
+    padding: 0.4rem 0.6rem;
+  }
+
+  code {
+    background-color: var(--bg-subtle);
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85em;
+  }
+
+  .login-footer {
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--text-light);
+  }
+</style>

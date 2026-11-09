@@ -1,0 +1,140 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { getDb } from '../../db/index';
+
+const user = Astro.locals.user;
+if (!user || user.role !== 'admin') {
+  return Astro.redirect('/login');
+}
+
+const db = getDb();
+const userCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any)?.c || 0;
+const courseCount = (db.prepare('SELECT COUNT(*) as c FROM courses').get() as any)?.c || 0;
+const pendingLeaveCount = (db.prepare("SELECT COUNT(*) as c FROM leave_requests WHERE status = 'pending'").get() as any)?.c || 0;
+const auditCount = (db.prepare('SELECT COUNT(*) as c FROM audit_log').get() as any)?.c || 0;
+---
+
+<DashboardLayout title="全校系統管理中心">
+  <div class="admin-dashboard">
+    <div class="page-header">
+      <h1 class="page-title">全校系統管理中心</h1>
+      <p class="page-sub">管理全校使用者、課程、修課名單、審核與系統安全日誌</p>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 stats-grid">
+      <div class="card stat-card">
+        <span class="stat-title">總使用者人數</span>
+        <span class="stat-number">{userCount}</span>
+        <span class="stat-hint">學生、教師與管理員</span>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-title">全校開設課程</span>
+        <span class="stat-number">{courseCount}</span>
+        <span class="stat-hint">本學期所有課程</span>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-title">待審核假單</span>
+        <span class="stat-number text-warning">{pendingLeaveCount}</span>
+        <span class="stat-hint">待審核請假總件數</span>
+      </div>
+
+      <div class="card stat-card">
+        <span class="stat-title">稽核日誌紀錄</span>
+        <span class="stat-number">{auditCount}</span>
+        <span class="stat-hint">安全操作事件</span>
+      </div>
+    </div>
+
+    
+    <div class="grid grid-cols-1 md:grid-cols-3 nav-cards">
+      <a href="/admin/users" class="card nav-card">
+        <h3 class="card-title">使用者帳號維護</h3>
+        <p class="card-desc">建立學生與教師帳號、停用離校帳號、重設密碼與權限指派。</p>
+        <span class="card-link">前往使用者管理 ›</span>
+      </a>
+
+      <a href="/admin/courses" class="card nav-card">
+        <h3 class="card-title">課程與選課管理</h3>
+        <p class="card-desc">開立新學期課程、指定授課教師與維護學生修課名單。</p>
+        <span class="card-link">前往課程管理 ›</span>
+      </a>
+
+      <a href="/admin/audit" class="card nav-card">
+        <h3 class="card-title">資安稽核紀錄日誌</h3>
+        <p class="card-desc">查詢全站所有登入、假單提交、審核處置與來源 IP 軌跡。</p>
+        <span class="card-link">檢視稽核日誌 ›</span>
+      </a>
+    </div>
+  </div>
+</DashboardLayout>
+
+<style>
+  .page-header {
+    margin-bottom: 1.5rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  .stats-grid {
+    margin-bottom: 1.5rem;
+  }
+  .stat-card {
+    padding: 1.25rem;
+  }
+  .stat-title {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+  }
+  .stat-number {
+    font-size: 1.8rem;
+    font-weight: 600;
+    line-height: 1.2;
+    margin-bottom: 0.25rem;
+  }
+  .stat-hint {
+    font-size: 0.78rem;
+    color: var(--text-light);
+  }
+  .text-warning {
+    color: var(--status-pending-text);
+  }
+  .nav-cards {
+    margin-top: 1rem;
+  }
+  .nav-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .nav-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+  }
+  .card-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+  .card-desc {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-bottom: 1.25rem;
+    flex: 1;
+  }
+  .card-link {
+    font-size: 0.88rem;
+    color: var(--accent);
+    font-weight: 500;
+  }
+</style>

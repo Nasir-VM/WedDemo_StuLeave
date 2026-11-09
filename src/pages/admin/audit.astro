@@ -1,0 +1,220 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import Pagination from '../../components/Pagination.astro';
+import { listAuditLogs } from '../../db/queries/audit';
+
+const user = Astro.locals.user;
+if (!user || user.role !== 'admin') {
+  return Astro.redirect('/login');
+}
+
+const url = Astro.url;
+const searchParams = url.searchParams;
+
+const page = parseInt(searchParams.get('page') || '1', 10);
+const pageSize = 20;
+const offset = (page - 1) * pageSize;
+
+const action = searchParams.get('action') || '';
+const search = searchParams.get('search') || '';
+
+const { logs, total } = listAuditLogs({
+  action: action || undefined,
+  search: search || undefined,
+  limit: pageSize,
+  offset
+});
+
+const totalPages = Math.ceil(total / pageSize);
+---
+
+<DashboardLayout title="系統資安稽核日誌">
+  <div class="audit-page">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">系統資安稽核日誌</h1>
+        <p class="page-sub">記載全站登入、假單提交、審核處置與使用者變更等安全行為與來源 IP</p>
+      </div>
+    </div>
+
+    
+    <div class="card filter-card">
+      <form method="GET" class="filter-form">
+        <div class="filter-grid">
+          <div class="filter-group">
+            <label class="filter-label" for="actionSelect">操作行為 (Action)</label>
+            <select id="actionSelect" name="action" class="form-control form-control-sm">
+              <option value="">全部行為</option>
+              <option value="LOGIN_SUCCESS" selected={action === 'LOGIN_SUCCESS'}>登入成功 (LOGIN_SUCCESS)</option>
+              <option value="LOGIN_FAILURE" selected={action === 'LOGIN_FAILURE'}>登入失敗 (LOGIN_FAILURE)</option>
+              <option value="LOGOUT" selected={action === 'LOGOUT'}>登出 (LOGOUT)</option>
+              <option value="SUBMIT_LEAVE" selected={action === 'SUBMIT_LEAVE'}>提出請假 (SUBMIT_LEAVE)</option>
+              <option value="WITHDRAW_LEAVE" selected={action === 'WITHDRAW_LEAVE'}>撤回請假 (WITHDRAW_LEAVE)</option>
+              <option value="APPROVE_LEAVE" selected={action === 'APPROVE_LEAVE'}>審核核准 (APPROVE_LEAVE)</option>
+              <option value="REJECT_LEAVE" selected={action === 'REJECT_LEAVE'}>審核駁回 (REJECT_LEAVE)</option>
+              <option value="BATCH_APPROVE_LEAVE" selected={action === 'BATCH_APPROVE_LEAVE'}>批次核准 (BATCH_APPROVE_LEAVE)</option>
+              <option value="CHANGE_PASSWORD" selected={action === 'CHANGE_PASSWORD'}>變更密碼 (CHANGE_PASSWORD)</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label class="filter-label" for="searchInput">關鍵字搜尋</label>
+            <input
+              type="text"
+              id="searchInput"
+              name="search"
+              class="form-control form-control-sm"
+              placeholder="使用者 ID、姓名或詳細資訊..."
+              value={search}
+            />
+          </div>
+        </div>
+
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary btn-sm">套用篩選</button>
+          <a href="/admin/audit" class="btn btn-secondary btn-sm">重設</a>
+        </div>
+      </form>
+    </div>
+
+    
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>時間</th>
+            <th>操作人員</th>
+            <th>動作行為</th>
+            <th>目標類型</th>
+            <th>目標編號</th>
+            <th>詳細資訊 (JSON)</th>
+            <th>來源 IP</th>
+          </tr>
+        </thead>
+        <tbody>
+          {logs.map((log) => (
+            <tr>
+              <td class="time-cell">{log.created_at}</td>
+              <td>
+                {log.user_id ? (
+                  <span>
+                    <strong>{log.user_name || log.user_id}</strong>
+                    <div class="td-sub"><code>{log.user_id}</code></div>
+                  </span>
+                ) : (
+                  <span class="text-light">系統 / 未認證</span>
+                )}
+              </td>
+              <td>
+                <span class={`action-badge action-${log.action}`}>
+                  {log.action}
+                </span>
+              </td>
+              <td>{log.target_type}</td>
+              <td>
+                {log.target_id ? <code>{log.target_id}</code> : '—'}
+              </td>
+              <td class="details-cell">
+                {log.details ? (
+                  <pre class="json-code">{log.details}</pre>
+                ) : (
+                  <span class="text-light">—</span>
+                )}
+              </td>
+              <td><code>{log.ip_address}</code></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <Pagination currentPage={page} totalPages={totalPages} baseUrl={url.pathname + url.search} />
+  </div>
+</DashboardLayout>
+
+<style>
+  .page-header {
+    margin-bottom: 1.5rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  .filter-card {
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    background-color: var(--bg-surface);
+  }
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+  @media (min-width: 640px) {
+    .filter-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .filter-label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+    font-weight: 500;
+  }
+  .form-control-sm {
+    min-height: 36px;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.88rem;
+  }
+  .filter-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    justify-content: flex-end;
+  }
+  .time-cell {
+    font-size: 0.82rem;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+  .td-sub {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+  .action-badge {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-family: monospace;
+    white-space: nowrap;
+    background-color: var(--bg-subtle);
+    color: var(--text-main);
+  }
+  .action-LOGIN_SUCCESS { background-color: var(--accent-green-light); color: var(--accent-green); }
+  .action-LOGIN_FAILURE { background-color: var(--status-rejected-bg); color: var(--status-rejected-text); }
+  .action-APPROVE_LEAVE { background-color: var(--accent-light); color: var(--accent); }
+  .action-REJECT_LEAVE { background-color: var(--status-rejected-bg); color: var(--status-rejected-text); }
+  .action-SUBMIT_LEAVE { background-color: var(--status-pending-bg); color: var(--status-pending-text); }
+
+  .details-cell {
+    max-width: 240px;
+  }
+  .json-code {
+    max-height: 60px;
+    overflow-y: auto;
+    font-size: 0.75rem;
+    font-family: monospace;
+    background-color: var(--bg-subtle);
+    padding: 0.35rem;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+</style>

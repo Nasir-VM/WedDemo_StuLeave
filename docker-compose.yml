@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: campus-leave-app:latest
+    container_name: campus-leave-app
+    restart: unless-stopped
+
+    expose:
+      - "4321"
+    environment:
+      - SCHOOL_NAME=${SCHOOL_NAME:-XX大學}
+      - NODE_ENV=production
+      - PORT=4321
+      - HOST=0.0.0.0
+      - DATABASE_PATH=/app/data/database.sqlite
+      - UPLOAD_DIR=/app/data/uploads
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CSRF_SECRET=${CSRF_SECRET}
+      - TRUST_PROXY=true
+    volumes:
+
+      - sqlite_data:/app/data
+      - sqlite_backups:/app/backups
+
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    networks:
+      - internal_net
+
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: campus-leave-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - internal_net
+
+
+volumes:
+  sqlite_data:
+    name: campus_leave_data
+  sqlite_backups:
+    name: campus_leave_backups
+
+
+networks:
+  internal_net:
+    name: campus_leave_internal
+    driver: bridge

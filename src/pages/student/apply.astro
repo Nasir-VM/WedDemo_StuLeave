@@ -1,0 +1,384 @@
+---
+import DashboardLayout from '../../layouts/DashboardLayout.astro';
+import { getCoursesForStudent } from '../../db/queries/courses';
+import { LEAVE_TYPES, PERIODS, WEEKDAYS } from '../../config/constants';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const enrolledCourses = getCoursesForStudent(user.id);
+const csrfToken = Astro.locals.csrfToken;
+const todayStr = new Date().toISOString().slice(0, 10);
+---
+
+<DashboardLayout title="線上請假申請">
+  <div class="apply-page">
+    <div class="page-header">
+      <h1 class="page-title">線上填寫請假申請</h1>
+      <p class="page-sub">請確實填寫受影響之課堂與節次，並依校規檢附相關佐證附件。</p>
+    </div>
+
+    <div class="card form-card">
+      <div id="errorAlert" class="alert alert-error" style="display: none;" role="alert"></div>
+      <div id="successAlert" class="alert alert-success" style="display: none;" role="alert"></div>
+
+      {enrolledCourses.length === 0 ? (
+        <div class="empty-enrolled">
+          <p>您目前在此學期尚未加入任何選課名單，無法提出請假申請。</p>
+          <p class="sub-tip">請聯繫教務處或授課教師進行選課設定。</p>
+        </div>
+      ) : (
+        <form id="applyForm" enctype="multipart/form-data" novalidate>
+          <input type="hidden" name="csrf_token" value={csrfToken} />
+
+          
+          <div class="form-group">
+            <label for="courseId" class="form-label">
+              請假課程 <span class="required">*</span>
+            </label>
+            <select id="courseId" name="courseId" class="form-control" required>
+              <option value="">-- 請選擇欲請假的課程 --</option>
+              {enrolledCourses.map((c) => {
+                const dayLabel = WEEKDAYS.find((w) => w.day === c.weekday)?.label || '';
+                return (
+                  <option value={c.id}>
+                    {c.id} {c.name} ({dayLabel} 第 {c.start_period}~{c.end_period} 節 - {c.teacher_name})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          
+          <div class="form-group">
+            <label class="form-label">
+              假別 <span class="required">*</span>
+            </label>
+            <div class="radio-group">
+              {Object.entries(LEAVE_TYPES).map(([code, item], index) => (
+                <label class="radio-label">
+                  <input
+                    type="radio"
+                    name="leaveType"
+                    value={code}
+                    checked={index === 0}
+                    required
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          
+          <div class="grid grid-cols-1 md:grid-cols-2">
+            <div class="form-group">
+              <label for="startDate" class="form-label">
+                開始日期 <span class="required">*</span>
+              </label>
+              <input
+                type="date"
+                id="startDate"
+                name="startDate"
+                class="form-control"
+                value={todayStr}
+                required
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="endDate" class="form-label">
+                結束日期 <span class="required">*</span>
+              </label>
+              <input
+                type="date"
+                id="endDate"
+                name="endDate"
+                class="form-control"
+                value={todayStr}
+                required
+              />
+            </div>
+          </div>
+
+          
+          <div class="form-group">
+            <div class="periods-header">
+              <label class="form-label">
+                請假節次 <span class="required">*</span>
+              </label>
+              <button type="button" id="selectAllPeriods" class="btn btn-secondary btn-sm">
+                全選當日節次
+              </button>
+            </div>
+            <div class="periods-grid">
+              {PERIODS.map((p) => (
+                <label class="period-checkbox-label">
+                  <input type="checkbox" name="periods" value={p.period} class="period-checkbox" />
+                  <span class="period-text">{p.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          
+          <div class="form-group">
+            <label for="reason" class="form-label">
+              請假事由說明 <span class="required">*</span>
+            </label>
+            <textarea
+              id="reason"
+              name="reason"
+              class="form-control"
+              placeholder="請具體敘明請假原因（至少 3 字）..."
+              required
+              rows="3"
+            ></textarea>
+          </div>
+
+          
+          <div class="form-group">
+            <label for="attachment" class="form-label">
+              佐證附件（選填）
+            </label>
+            <input
+              type="file"
+              id="attachment"
+              name="attachment"
+              class="form-control file-input"
+              accept=".jpg,.jpeg,.png,.pdf"
+            />
+            <div class="form-hint">
+              僅接受 JPG、PNG 或 PDF 格式檔案，單檔大小上限為 5MB。
+            </div>
+          </div>
+
+          
+          <div class="form-actions">
+            <a href="/student" class="btn btn-secondary">
+              取消返回
+            </a>
+            <button type="submit" id="submitBtn" class="btn btn-primary">
+              確認送出請假申請
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  </div>
+
+  <script is:inline>
+    const form = document.getElementById('applyForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const errorAlert = document.getElementById('errorAlert');
+    const successAlert = document.getElementById('successAlert');
+    const selectAllBtn = document.getElementById('selectAllPeriods');
+
+    let allSelected = false;
+    selectAllBtn?.addEventListener('click', () => {
+      allSelected = !allSelected;
+      document.querySelectorAll('.period-checkbox').forEach((cb) => {
+        cb.checked = allSelected;
+      });
+      selectAllBtn.textContent = allSelected ? '清除全選' : '全選當日節次';
+    });
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorAlert.style.display = 'none';
+      successAlert.style.display = 'none';
+
+      const courseId = document.getElementById('courseId')?.value;
+      const startDate = document.getElementById('startDate')?.value;
+      const endDate = document.getElementById('endDate')?.value;
+      const reason = document.getElementById('reason')?.value.trim();
+      const periods = Array.from(document.querySelectorAll('.period-checkbox:checked')).map((c) => c.value);
+
+      if (!courseId) {
+        errorAlert.textContent = '請選擇請假課程';
+        errorAlert.style.display = 'block';
+        return;
+      }
+
+      if (!startDate || !endDate) {
+        errorAlert.textContent = '請選擇請假起訖日期';
+        errorAlert.style.display = 'block';
+        return;
+      }
+
+      if (endDate < startDate) {
+        errorAlert.textContent = '結束日期不得早於開始日期';
+        errorAlert.style.display = 'block';
+        return;
+      }
+
+      if (periods.length === 0) {
+        errorAlert.textContent = '請至少勾選一個請假節次';
+        errorAlert.style.display = 'block';
+        return;
+      }
+
+      if (!reason || reason.length < 3) {
+        errorAlert.textContent = '請假事由長度至少需 3 個字元';
+        errorAlert.style.display = 'block';
+        return;
+      }
+
+      
+      const fileInput = document.getElementById('attachment');
+      if (fileInput?.files?.length > 0) {
+        const file = fileInput.files[0];
+        if (file.size > 5 * 1024 * 1024) {
+          errorAlert.textContent = '附件檔案超過 5MB 限制';
+          errorAlert.style.display = 'block';
+          return;
+        }
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '正在驗證並送出...';
+
+      const formData = new FormData(form);
+      const csrfToken = form.querySelector('input[name="csrf_token"]').value;
+
+      try {
+        const res = await fetch('/api/leaves/create', {
+          method: 'POST',
+          headers: {
+            'x-csrf-token': csrfToken
+          },
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          errorAlert.textContent = data.error || '請假申請送出失敗';
+          errorAlert.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = '確認送出請假申請';
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+
+        successAlert.textContent = '請假單已成功送出！正在跳轉至我的請假紀錄...';
+        successAlert.style.display = 'block';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        setTimeout(() => {
+          window.location.href = '/student';
+        }, 1200);
+      } catch (err) {
+        errorAlert.textContent = '網路異常或連線中斷，請稍後重試';
+        errorAlert.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = '確認送出請假申請';
+      }
+    });
+  </script>
+</DashboardLayout>
+
+<style>
+  .apply-page {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  .page-header {
+    margin-bottom: 1.5rem;
+  }
+  .page-title {
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .page-sub {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+  .form-card {
+    background-color: var(--bg-surface);
+  }
+  .radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.5rem 0;
+  }
+  .radio-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    min-height: 36px;
+  }
+  .periods-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+  .periods-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 0.5rem;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background-color: var(--bg-surface);
+  }
+  @media (min-width: 640px) {
+    .periods-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .period-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.88rem;
+    padding: 0.35rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .period-checkbox-label:hover {
+    background-color: var(--bg-subtle);
+  }
+  .file-input {
+    padding: 0.4rem 0.6rem;
+  }
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+  }
+  .alert {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    margin-bottom: 1.25rem;
+  }
+  .alert-error {
+    background-color: var(--status-rejected-bg);
+    color: var(--status-rejected-text);
+  }
+  .alert-success {
+    background-color: var(--accent-green-light);
+    color: var(--accent-green);
+  }
+  .empty-enrolled {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: var(--text-muted);
+  }
+  .sub-tip {
+    font-size: 0.85rem;
+    color: var(--text-light);
+    margin-top: 0.5rem;
+  }
+</style>
